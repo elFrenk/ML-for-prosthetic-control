@@ -54,6 +54,7 @@ def extract_features(signal, ii):
     return features
 
 def extract_features_window(ms, fs, FilteredEMG, df):
+    print('Extracting features...')
     window_size = int(ms * fs / 1000)
     features_list = [[] for _ in range(13)]
     for ii in range(1, 13):
@@ -66,12 +67,15 @@ def extract_features_window(ms, fs, FilteredEMG, df):
                 features = extract_features(window, ii)
                 features_list[ii].append(features)
 
+        print(f'Status: {ii + 1} out of 13', end='\r')
+
     # Flatten the list of lists and create a DataFrame
     features_df = pd.concat([pd.DataFrame(f) for f in features_list], axis=1)
-
+    print()
     return features_df
 
 def extract_labels_window(ms, fs, lenSignal, df):
+    print('Extracting labels...')
     window_size = int(ms * fs / 1000)    
     labels = []
     for start in range(0, lenSignal, window_size):
@@ -81,11 +85,12 @@ def extract_labels_window(ms, fs, lenSignal, df):
             # Majority voting per determinare l'etichetta della finestra
             label = window_labels.value_counts().idxmax()
             labels.append(label)
-
+        print('Status: ', start, end, lenSignal, end='\r')
     return labels
 
 
 def train_and_evaluate_model(features_df):
+    print('Training and evaluating model...')
     top4Features = ['MAV', 'std', 'zero_crossings', 'waveform_length']
     featuresTraining = []
     for ii in range(1, 13):
@@ -110,9 +115,15 @@ def train_and_evaluate_model(features_df):
 
     return rf_model, accuracy, report
 
+import os
 
 def load_data():
-    data_path = "../data/s1/S1_E1_A1.mat" 
+    # data_path = str(os.getcwd()) + "/data/s1/S1_E1_A1.mat" 
+    data_path = "./data/s1/S1_E1_A1.mat"
+    print(f'Loading data from {data_path}')
+    
+    if not os.path.exists(data_path):
+        print(f'File at path {data_path} does not exist')
     data = loadmat(data_path)
     rows = data
 
@@ -128,21 +139,9 @@ def load_data():
 if __name__ == "__main__":
     data = load_data()
     dataLabels = ['EMG' + str(x) for x in range(1, 13)]
-    
-    dataVal = list(data.keys())
-    leaveOut = ['emg', 'subject', 'age', 'exercise', 'circumference',
-                'frequency', 'gender', 'height', 'weight', 'laterality', 'sensor']
-    dataLabels = dataVal
-
-    emgDf = pd.DataFrame(data=dataLabels['emg'], columns=dataLabels)
-    for x in leaveOut:
-        dataVal.remove(x)
-        
-    dataArray = [emgDf]
-    for ii, jj in enumerate(dataLabels):
-        dataArray.append(pd.DataFrame(data[jj], columns=[dataLabels[ii]]))
-    
-    df = pd.concat(dataArray, axis=1, join="inner")
+    emgDf = pd.DataFrame(data=data['emg'], columns=dataLabels)
+    df = emgDf
+    df['restimulus'] = data['restimulus']
 
     ## Pre processing part
     # Normalize the data
@@ -152,11 +151,11 @@ if __name__ == "__main__":
     #emgDf.head()
 
     fs = data['frequency'][0][0]  # Frequenza di Nyquist
-    FilteredEMG = filter_the_data(df, fs)
+    FilteredEMG = filter_the_data(emgDf, fs)
 
     ms = 200 # Durata della finestra in ms
     features_df = extract_features_window(ms, fs, FilteredEMG, df) 
-    labels = extract_labels_window(ms, fs, len(FilteredEMG[0]), df)
+    labels = extract_labels_window(ms, fs, len(FilteredEMG), df)
     features_df['restimulus'] = labels
 
     rf_model, accuracy, report = train_and_evaluate_model(features_df)
